@@ -175,4 +175,10 @@ impl Dialect for DuckDbDialect {
     fn supports_add_column_if_not_exists(&self) -> bool {
         true
     }
+
+    /// See: <https://ducklake.select/docs/stable/duckdb/usage/time_travel>
+    /// Support added in <https://github.com/duckdb/duckdb/pull/16774>
+    fn supports_table_versioning(&self) -> bool {
+        true
+    }
 }

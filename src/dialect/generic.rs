@@ -384,4 +384,12 @@ impl Dialect for GenericDialect {
     fn supports_add_column_if_not_exists(&self) -> bool {
         true
     }
+
+    fn supports_table_versioning(&self) -> bool {
+        true
+    }
+
+    fn supports_version_as_of_expr(&self) -> bool {
+        true
+    }
 }

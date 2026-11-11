@@ -1791,6 +1791,14 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if `VERSION AS OF` accepts an expression, such as an
+    /// Iceberg tag or branch name, rather than only a number literal.
+    ///
+    /// See: <https://iceberg.apache.org/docs/latest/spark-queries/#time-travel-queries-with-sql>
+    fn supports_version_as_of_expr(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports the E'...' syntax for string literals
     ///
     /// Postgres: <https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE>

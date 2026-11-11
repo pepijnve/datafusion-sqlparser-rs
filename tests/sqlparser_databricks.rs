@@ -474,7 +474,7 @@ fn parse_table_time_travel() {
     );
 
     assert_eq!(
-        all_dialects_where(|d| d.supports_table_versioning())
+        all_dialects_where(|d| d.supports_table_versioning() && !d.supports_version_as_of_expr())
             .parse_sql_statements("SELECT 1 FROM t1 VERSION AS OF 1 - 2"),
         Err(ParserError::ParserError(
             "Expected: end of statement, found: -".to_string()

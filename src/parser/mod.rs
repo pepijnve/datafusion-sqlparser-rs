@@ -18462,9 +18462,11 @@ impl<'a> Parser<'a> {
             {
                 let expr = self.parse_expr()?;
                 return Ok(Some(TableVersion::ForSystemTimeAsOf(expr)));
-            } else if self.peek_keyword(Keyword::CHANGES) {
+            } else if self.peek_table_version_function(Keyword::CHANGES) {
                 return self.parse_table_version_changes().map(Some);
-            } else if self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE) {
+            } else if self.peek_table_version_function(Keyword::AT)
+                || self.peek_table_version_function(Keyword::BEFORE)
+            {
                 let func_name = self.parse_object_name(true)?;
                 let func = self.parse_function(func_name)?;
                 return Ok(Some(TableVersion::Function(func)));
@@ -18472,11 +18474,29 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr()?;
                 return Ok(Some(TableVersion::TimestampAsOf(expr)));
             } else if self.parse_keywords(&[Keyword::VERSION, Keyword::AS, Keyword::OF]) {
-                let expr = Expr::Value(self.parse_number_value()?);
+                let expr = if self.dialect.supports_version_as_of_expr() {
+                    self.parse_expr()?
+                } else {
+                    Expr::Value(self.parse_number_value()?)
+                };
                 return Ok(Some(TableVersion::VersionAsOf(expr)));
             }
         }
         Ok(None)
+    }
+
+    /// Peeks `<keyword> (<name> =>`, so that e.g. `FROM t at` and
+    /// `FROM t at(a, b)` remain table aliases.
+    fn peek_table_version_function(&self, keyword: Keyword) -> bool {
+        matches!(
+            self.peek_tokens_ref(),
+            [
+                TokenWithSpan { token: Token::Word(w), .. },
+                TokenWithSpan { token: Token::LParen, .. },
+                TokenWithSpan { token: Token::Word(_), .. },
+                TokenWithSpan { token: Token::RArrow, .. },
+            ] if w.keyword == keyword
+        )
     }
 
     /// Parses the Snowflake `CHANGES` clause for change tracking queries.
