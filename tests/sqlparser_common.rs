@@ -23481,3 +23481,115 @@ fn parse_trailing_end_keyword_is_not_silently_dropped() {
         ParserError::ParserError("Expected: end of statement, found: END".to_string())
     );
 }
+
+#[test]
+fn parse_table_version_function() {
+    let dialects = all_dialects_where(|d| {
+        d.supports_table_versioning() && d.supports_named_fn_args_with_rarrow_operator()
+    });
+
+    let select = dialects.verified_only_select("SELECT * FROM t AT(VERSION => 1 + 1)");
+    assert_matches!(
+        &select.from[0].relation,
+        TableFactor::Table {
+            version: Some(TableVersion::Function(_)),
+            ..
+        }
+    );
+    dialects.verified_only_select("SELECT * FROM t AT(TIMESTAMP => '2024-01-01 00:00:00')");
+    dialects.verified_only_select("SELECT * FROM t BEFORE(STATEMENT => 'abc')");
+    dialects.one_statement_parses_to(
+        "SELECT * FROM t AT (VERSION => 3)",
+        "SELECT * FROM t AT(VERSION => 3)",
+    );
+
+    assert_eq!(
+        all_dialects_where(|d| !d.supports_table_versioning())
+            .parse_sql_statements("SELECT * FROM t AT(VERSION => 1)")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: ), found: =>".to_string())
+    );
+}
+
+#[test]
+fn parse_table_version_keywords_as_table_alias() {
+    let dialects = all_dialects_where(|d| d.supports_table_versioning());
+
+    for alias in ["at", "before", "changes"] {
+        let select = dialects.verified_only_select(&format!("SELECT * FROM t {alias}"));
+        assert_matches!(
+            &select.from[0].relation,
+            TableFactor::Table {
+                alias: Some(TableAlias { name, .. }),
+                version: None,
+                ..
+            } if name.value == alias
+        );
+        dialects.verified_only_select(&format!("SELECT * FROM t AS {alias}"));
+        dialects.verified_only_select(&format!("SELECT * FROM t {alias} (a, b)"));
+    }
+    dialects.verified_only_select("SELECT * FROM t at JOIN u before ON at.a = before.a");
+
+    assert_eq!(
+        dialects
+            .parse_sql_statements("SELECT * FROM t AT(1)")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: identifier, found: 1".to_string())
+    );
+}
+
+#[test]
+fn parse_table_version_as_of_expr() {
+    let dialects =
+        all_dialects_where(|d| d.supports_table_versioning() && d.supports_version_as_of_expr());
+
+    let select = dialects.verified_only_select("SELECT * FROM t VERSION AS OF 'my-tag'");
+    assert_matches!(
+        &select.from[0].relation,
+        TableFactor::Table {
+            version: Some(TableVersion::VersionAsOf(Expr::Value(ValueWithSpan{
+                value: Value::SingleQuotedString(s),
+                span: _
+            }))),
+            ..
+        } if s == "my-tag"
+    );
+    dialects.verified_only_select("SELECT * FROM t VERSION AS OF 1 + 1");
+    dialects.verified_only_select("SELECT * FROM t VERSION AS OF 1 JOIN u ON t.a = u.a");
+    dialects.verified_only_select("SELECT * FROM t VERSION AS OF 'my-tag' WHERE a = 1");
+
+    // Not a round trip: the alias is displayed before the version clause, see #2804.
+    let select = dialects
+        .parse_sql_statements("SELECT * FROM t VERSION AS OF 1 AS x")
+        .unwrap();
+    let Statement::Query(query) = &select[0] else {
+        panic!("Expected: Query")
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        panic!("Expected: Select")
+    };
+    assert_matches!(
+        &select.from[0].relation,
+        TableFactor::Table {
+            alias: Some(TableAlias { name, .. }),
+            version: Some(TableVersion::VersionAsOf(Expr::Value(ValueWithSpan{
+                value: Value::Number(value, _),
+                span: _
+            }))),
+            ..
+        } if name.value == "x" && value == "1"
+    );
+
+    assert_eq!(
+        dialects
+            .parse_sql_statements("SELECT * FROM t VERSION AS OF")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: an expression, found: EOF".to_string())
+    );
+    assert_eq!(
+        all_dialects_where(|d| d.supports_table_versioning() && !d.supports_version_as_of_expr())
+            .parse_sql_statements("SELECT * FROM t VERSION AS OF 'my-tag'")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: literal number, found: 'my-tag'".to_string())
+    );
+}
